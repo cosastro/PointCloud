@@ -3,6 +3,7 @@
 import open3d as o3d 
 import os
 import numpy as np
+import pandas
 from pyntcloud import PyntCloud
 
 # 功能：计算PCA的函数
@@ -16,8 +17,16 @@ from pyntcloud import PyntCloud
 def PCA(data, correlation=False, sort=True):
     # 作业1
     # 屏蔽开始
-
-
+    # 输出data中的点的数量
+    N = data.shape[0]
+    # pandas.DataFrame转numpy
+    X = data.to_numpy()
+    # 归一化处理以及构建协方差矩阵
+    data_mean = np.mean(data, axis=0)
+    normalize_data = data - data_mean
+    # 构造协方差矩阵
+    H = np.dot(normalize_data.T, normalize_data)
+    eigenvectors, eigenvalues, eigenvector_t = np.linalg.svd(H)
     # 屏蔽结束
 
     if sort:
@@ -36,9 +45,14 @@ def main():
     # filename = os.path.join(root_dir, cat[cat_index],'train', cat[cat_index]+'_0001.ply') # 默认使用第一个点云
 
     # 加载原始点云
-    point_cloud_pynt = PyntCloud.from_file("/Users/renqian/Downloads/program/cloud_data/11.ply")
+    # point_cloud_pynt = PyntCloud.from_file("/Users/renqian/Downloads/program/cloud_data/11.ply")
+    # point_cloud_o3d = point_cloud_pynt.to_instance("open3d", mesh=False)
+    points = np.genfromtxt("../modelnet40_normal_resampled/bed/bed_0003.txt", delimiter=",")
+    points = pandas.DataFrame(points[:, 0:3])
+    points.columns = ['x', 'y', 'z']
+    point_cloud_pynt = PyntCloud(points)
     point_cloud_o3d = point_cloud_pynt.to_instance("open3d", mesh=False)
-    # o3d.visualization.draw_geometries([point_cloud_o3d]) # 显示原始点云
+    #o3d.visualization.draw_geometries([point_cloud_o3d]) # 显示原始点云
 
     # 从点云中获取点，只对点进行处理
     points = point_cloud_pynt.points
@@ -46,24 +60,46 @@ def main():
 
     # 用PCA分析点云主方向
     w, v = PCA(points)
-    point_cloud_vector = v[:, 2] #点云主方向对应的向量
+    point_cloud_vector = v[:, 0] #点云主方向对应的向量
     print('the main orientation of this pointcloud is: ', point_cloud_vector)
     # TODO: 此处只显示了点云，还没有显示PCA
-    # o3d.visualization.draw_geometries([point_cloud_o3d])
-    
+    point = [[0, 0, 0], v[:, 0], v[:, 1]] #提取第一和第二主成分
+    lines = [[0, 1], [0, 2]] #由点构成线， 【0， 1】代表以点0，1构成得线， 【0， 2】代表以点0， 2构成的线
+    colors = [[1, 0, 0], [0, 1, 0]] #两个不同的颜色构成线
+    lines_set = o3d.geometry.LineSet(
+        points = o3d.utility.Vector3dVector(point),
+        lines = o3d.utility.Vector2iVector(lines)
+    )
+    lines_set.colors = o3d.utility.Vector3dVector(colors)
+    o3d.visualization.draw_geometries([point_cloud_o3d, lines_set])
+
     # 循环计算每个点的法向量
     pcd_tree = o3d.geometry.KDTreeFlann(point_cloud_o3d)
     normals = []
     # 作业2
     # 屏蔽开始
-
+    for i in range(points.shape[0]):
+        [_, idx, _] = pcd_tree.search_knn_vector_3d(point_cloud_o3d.points[i], 5)
+        k_nearest_point = np.asarray(point_cloud_o3d.points)[idx, :]
+        w, v = PCA(pandas.DataFrame(k_nearest_point))
+        normals.append(v[:, 2])
     # 由于最近邻搜索是第二章的内容，所以此处允许直接调用open3d中的函数
-
     # 屏蔽结束
     normals = np.array(normals, dtype=np.float64)
     # TODO: 此处把法向量存放在了normals中
+    N = points.shape[0]
+    normals_points = np.vstack((points.to_numpy(), points.to_numpy() + 0.2 * normals))
+    normals_lines = [[i, i+N] for i in range(N)]
+    normals_colors = np.zeros((N, 3)).tolist()
+
+    normals_lines_set = o3d.geometry.LineSet(
+        points = o3d.utility.Vector3dVector(normals_points),
+        lines = o3d.utility.Vector2iVector(normals_lines)
+    )
+    normals_lines_set.colors = o3d.utility.Vector3dVector(normals_colors)
+
     point_cloud_o3d.normals = o3d.utility.Vector3dVector(normals)
-    o3d.visualization.draw_geometries([point_cloud_o3d])
+    o3d.visualization.draw_geometries([point_cloud_o3d, normals_lines_set])
 
 
 if __name__ == '__main__':
